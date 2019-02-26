@@ -1,0 +1,354 @@
+<!doctype html>
+
+<style>
+
+    @import url('https://fonts.googleapis.com/css?family=Oswald|Share+Tech+Mono');
+
+    body {
+        font-family: 'Oswald', sans-serif;
+        background-color: hsl(123, 10%, 93%);
+    }
+
+    div#clearEvents {
+        color: gray;
+    }
+
+    div#log_dialog {
+        position: fixed;
+        top:10%;
+        left:10%;
+        width:80%;
+        height:80%;
+        overflow:scroll;
+        background-color: hsl(123, 10%, 80%);
+        border: 1px solid gray;
+        padding: 10px;
+        box-shadow: 0px 0px 25px rgba(20, 20, 20, 0.9);
+    }
+
+    div#clearEvents:hover {
+        color: black;
+    }
+
+    table {
+        color: gray;
+    }
+
+    div#clearEvents:active {
+        color: black;
+        text-shadow: 0px 0px 3px #000000;
+    }
+    
+    span.removeElem {
+        float: right;
+        color: gray;
+        padding: 0px 10px;
+    }
+    
+    span.removeElem:hover {
+        color: black;
+    }
+    
+    span.removeElem:active {
+        color: black;
+        text-shadow: 0px 0px 3px #000000;
+    }
+    
+    span.closeElem {
+        float: right;
+        position: sticky;
+        top: 0;
+        color: gray;
+        padding: 0px 10px;
+    }
+    
+    span.closeElem:hover {
+        color: black;
+    }
+    
+    span.closeElem:active {
+        color: black;
+        text-shadow: 0px 0px 3px #000000;
+    }
+    
+    input {
+        font-family: 'Oswald', sans-serif;
+    }
+
+    input[type=number] {
+        width: 50px;
+    }
+
+    input[type=file] {
+        
+    }
+
+    button {
+        font-family: 'Oswald', sans-serif;
+        font-size: 130%;
+        background-color: hsl(123, 30%, 80%);
+    }
+    
+    textarea {
+        font-family: 'Share Tech Mono', monospace;
+        width: 100%;
+    }
+    
+    div#content {
+        margin: 0% 10% 20% 10%;
+    }
+    
+</style>
+
+<div hidden id="log_dialog">
+    <span class="closeElem" onclick="closeLogs();">Close</span>
+    <div id="logs"></div>
+</div>
+
+<div id="content">
+
+<title>Test node</title>
+
+    <table style="width:100%;">
+        <tr>
+            <td>Block <span id="block">0</span></td>
+            <td>Address <span id="address">0</span></td>
+            <td>Balance <span id="balance">0</span></td>
+            <td>Deposit <span id="deposit">0</span></td>
+        </tr>
+    </table>
+
+<button onclick="makeDeposit();">Make deposit</button>
+<input type="checkbox" checked class="error" id="enabled">Enable system
+
+<h1>Post tasks</h1>
+
+<textarea cols="100" rows="20" id="module">
+(module
+  ;; Recursive factorial
+  (func (export "fac-rec") (param i64) (result i64)
+    (if (result i64) (i64.eq (get_local 0) (i64.const 0))
+      (then (i64.const 1))
+      (else
+        (i64.mul (get_local 0) (call 0 (i64.sub (get_local 0) (i64.const 1))))
+      )
+    )
+  )
+)
+(invoke "fac-rec" (i64.const 25))
+</textarea>
+<p>
+
+<div hidden>    
+<h2>Simulate input from blockchain</h2>
+
+<div id="inputs"></div>
+</div>
+
+<button onclick="newTask();">New task</button>
+<button onclick="smartContract();" hidden>Test Smart Contract</button>
+<input id="wasm_file" name="wasm_file" type="file">
+<button onclick="newWasmTask();">New task from WASM file</button>
+<button onclick="newWasmTaskBlockchain();">WASM task to blockchain</button>
+
+<h1>Task givers</h1>
+
+    <div id="givers"></div>
+    
+<h1>Solvers</h1>
+
+<input type="checkbox" class="error" id="solver_error">Make an error at position <input type="number" id="solver_location"  class="error" value="100">
+<p>
+<input type="checkbox" class="error" id="solver_error_stop">Stop execution at position <input type="number" id="solver_stop"  class="error" value="100">
+<p>
+Maximum deposit for solver <input type="number" id="solver_deposit"  class="error" value="1" step="0.01">
+
+    <div id="solvers"></div>
+    
+<h1>Verifiers</h1>
+
+<input type="checkbox" checked class="error" id="verifier_challenge_own">Verify own solutions
+<p>
+<input type="checkbox" class="error" id="verifier_error">Make an error at position <input type="number" id="verifier_location"   class="error" value="100">
+<p>
+<input type="checkbox" class="error" id="verifier_error_stop">Stop execution at position <input type="number" id="verifier_stop"  class="error" value="100">
+<p>
+Maximum deposit for task <input type="number" id="verifier_deposit"  class="error" value="1" step="0.01">
+
+    <div id="verifiers"></div>
+    
+    <h1>Events</h1>
+
+    <div id="clearEvents" onclick="clearEvents();">Clear Events</div>
+    
+<div id="events"></div>
+
+</div>
+
+<script src="socketio.js"></script>
+
+<script>
+    
+    function makeInputs() {
+        var elem = document.querySelector("#inputs")
+        var res = ""
+        for (var i = 0; i < 64; i++) {
+            res += i + ': <input type="text" value="0x0000000000000000">'
+            if (i % 4 == 3) res += '<br>'
+        }
+        elem.innerHTML += res
+    }
+    
+    makeInputs()
+    
+    function getInput() {
+        var elems = document.querySelectorAll("#inputs input")
+        var res = []
+        for (var i = 0; i < elems.length; i++) {
+            res.push(elems[i].value)
+        }
+        return res
+    }
+    
+    function printList(lst) {
+        if (!(lst instanceof Array)) return JSON.stringify(lst)
+        return "<ol>" + lst.map(a => "<li>" + JSON.stringify(a)).join("") + "</ol>"
+    }
+    
+    function printObject(obj, msg) {
+        msg = msg || "Message"
+        var res = "<p>" + msg + " <ul>"
+        for (var i in obj) {
+            res += "<li>" + i + ": " + printList(obj[i])
+        }
+        return res + "</ul>"
+    }
+    
+    var host = document.location.hostname
+    
+    var socket = io(host + ":22448")
+    socket.on("client", () => console.log("Got message!"))
+    socket.on("event", function (obj) {
+        console.log(obj)
+        document.querySelector("#events").innerHTML += "<br>" + printObject(obj)
+    })
+    
+    function findElem(obj) {
+        var id = obj.kind+obj.pid
+        var elem = document.getElementById(id)
+        if (elem) return elem
+        var cont = document.querySelector("#"+obj.kind+"s")
+        elem = document.createElement("div")
+        cont.appendChild(elem)
+        elem.id = id
+        return elem
+    }
+    
+    socket.on("info", function (obj) {
+        document.querySelector("#block").innerHTML = obj.block
+        document.querySelector("#address").innerHTML = obj.address
+        document.querySelector("#balance").innerHTML = obj.balance
+        document.querySelector("#deposit").innerHTML = obj.deposit
+    })
+    
+    var logs = {}
+    
+    socket.on("logs", function (obj) {
+        var elem = document.querySelector("#logs")
+        elem.innerHTML = obj.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\n/g, "<br>")
+        console.log(obj.toString())
+        var dlg = document.querySelector("#log_dialog")
+        dlg.hidden = false
+    })
+
+    function closeLogs() {
+        var elem = document.querySelector("#log_dialog")
+        elem.hidden = true
+    }
+
+    function showLogs(num) {
+        socket.emit("logs", logs[num])
+    }
+
+    function makeDeposit() {
+        socket.emit("make_deposit", {})
+    }
+
+    socket.on("config", function (obj) {
+        console.log(obj)
+        var elem = findElem(obj)
+        logs[obj.pid] = obj.log_file
+        delete obj.log_file
+        elem.innerHTML = printObject(obj, obj.kind.toUpperCase() + " " + obj.pid +
+                                     '<span class="removeElem" onclick="showLogs(' + obj.pid +  ');">Logs</span>' +
+                                     '<span class="removeElem" onclick="removeElem(event);">Remove</span>')
+    })
+
+    socket.emit("request-ui", {})
+
+    function handleErrorUI() {
+        var e1 = document.querySelector("#solver_error")
+        var e2 = document.querySelector("#solver_location")
+        var e3 = document.querySelector("#verifier_error")
+        var e4 = document.querySelector("#verifier_location")
+        var e5 = document.querySelector("#verifier_challenge_own")
+        var e6 = document.querySelector("#solver_error_stop")
+        var e7 = document.querySelector("#solver_stop")
+        var e8 = document.querySelector("#verifier_error_stop")
+        var e9 = document.querySelector("#verifier_stop")
+        var e10 = document.querySelector("#enabled")
+        var e11 = document.querySelector("#solver_deposit")
+        var e12 = document.querySelector("#verifier_deposit")
+        socket.emit("setup_error", {
+            enabled: e10.checked,
+            solver: { error: e1.checked, error_location: e2.value, stop_early: e6.checked ? e7.value : -1, deposit: e11.value },
+            verifier: { error: e3.checked, error_location: e4.value, check_own: e5.value, stop_early: e8.checked ? e9.value : -1, deposit: e12.value },
+            
+        })
+        console.log("changed configuration")
+    }
+    
+    function removeElem(ev) {
+        var el = ev.target.parentNode.parentNode
+        el.parentNode.removeChild(el)
+    }
+    
+    function clearEvents() {
+        document.querySelector("#events").innerHTML = "";
+    }
+    
+    function initErrorUI() {
+        var lst = document.querySelectorAll(".error");
+        for (var i = 0; i < lst.length; i++) lst[i].onchange = handleErrorUI
+        handleErrorUI()
+    }
+    
+    initErrorUI()
+    
+    function newTask() {
+        socket.emit("new_task", {task:document.querySelector("#module").value, input:getInput()})
+    }
+    
+    function newWasmTask() {
+        var el = document.querySelector("#wasm_file")
+        var fr = new FileReader()
+        fr.onload = function () {
+            console.log(fr.result)
+            socket.emit("new_wasm_task", {task:fr.result, input:getInput()})
+        }
+        fr.readAsBinaryString(el.files[0])
+        
+    }
+    function newWasmTaskBlockchain() {
+        var el = document.querySelector("#wasm_file")
+        var fr = new FileReader()
+        fr.onload = function () {
+            console.log(fr.result)
+            socket.emit("new_blockchain_task", {task:fr.result, input:getInput()})
+        }
+        fr.readAsBinaryString(el.files[0])
+    }
+
+</script>
+
+
